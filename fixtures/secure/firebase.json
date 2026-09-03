@@ -1,0 +1,1 @@
+{"hosting":{"public":"dist","headers":[{"source":"**","headers":[{"key":"X-Content-Type-Options","value":"nosniff"}]}]},"appCheck":{"enforce":true}}
