@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+import { relative, resolve } from 'node:path';
+import { discover, runChecks } from './index.js';
+import { severityRank } from './utils.js';
+import type { Finding, Severity } from './types.js';
+const version = '0.1.0';
+function usage(): void { console.log(`Firebase Security Auditor v${version}\n\nUsage:\n  firebase-security-auditor scan <directory> [options]\n\nOptions:\n  --json              Print machine-readable JSON\n  --output <file>     Write JSON report to a file\n  --severity <level>  Minimum severity (critical|high|medium|low|info)\n  --ignore <ids>      Comma-separated finding IDs to ignore\n  --help              Show help\n  --version           Show version`); }
+function parse(args: string[]): { dir: string; json: boolean; output?: string; severity: Severity; ignore: Set<string> } {
+  const dir = args[1] && !args[1].startsWith('-') ? resolve(args[1]) : process.cwd(); let json = false; let output: string | undefined; let severity: Severity = 'Info'; const ignore = new Set<string>();
+  for (let i = 2; i < args.length; i++) { const arg = args[i]; if (arg === '--json') json = true; else if (arg === '--output') output = args[++i]; else if (arg === '--severity') { const value = args[++i]?.toLowerCase(); const match = (['critical','high','medium','low','info'] as const).find(v => v === value); if (!match) throw new Error('Invalid severity. Use critical, high, medium, low, or info.'); severity = match[0].toUpperCase() + match.slice(1) as Severity; } else if (arg === '--ignore') (args[++i] ?? '').split(',').filter(Boolean).forEach(id => ignore.add(id)); }
+  return { dir, json, output, severity, ignore };
+}
+function printFinding(f: Finding): void { console.log(`[${f.severity}] ${f.id} — ${f.title}\n  ${f.file}${f.line ? `:${f.line}` : ''}\n  ${f.reason}\n  Fix: ${f.remediation}\n`); }
+async function main(): Promise<void> { const args = process.argv.slice(2); if (args.includes('--help') || args.length === 0) return usage(); if (args.includes('--version')) return console.log(version); if (args[0] !== 'scan') throw new Error('Unknown command. Use "scan <directory> --help".'); const options = parse(args); const findings = runChecks(await discover(options.dir)).filter(f => severityRank[f.severity] >= severityRank[options.severity] && !options.ignore.has(f.id)); if (options.json || options.output) { const report = JSON.stringify({ version, root: relative(process.cwd(), options.dir) || '.', findings }, null, 2); if (options.output) await import('node:fs/promises').then(fs => fs.writeFile(resolve(options.output!), report + '\n')); if (options.json) console.log(report); } else { console.log(`Firebase Security Auditor v${version}\nScanned: ${options.dir}\nFindings: ${findings.length}\n`); findings.forEach(printFinding); } process.exitCode = findings.some(f => f.severity === 'Critical' || f.severity === 'High') ? 1 : 0; }
+main().catch(error => { console.error(`Error: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 2; });
